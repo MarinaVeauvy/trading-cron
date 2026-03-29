@@ -1,0 +1,28 @@
+name: Trading Cron (2h)
+on:
+  schedule:
+    - cron: '0 */2 * * *'  # A cada 2 horas
+  workflow_dispatch: {}
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: OKX 1 - Cron
+        run: curl -sf "https://aguia-trader.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
+
+      - name: OKX 1 - Trailing
+        run: curl -sf -X POST "https://aguia-trader.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
+
+      - name: OKX 2 - Cron
+        run: curl -sf "https://aguia-trader-2.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
+
+      - name: OKX 2 - Trailing
+        run: curl -sf -X POST "https://aguia-trader-2.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
+
+      - name: Bitget - Cron
+        run: curl -sf "https://bitget-trader.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
+
+      - name: Bitget - Trailing
+        run: curl -sf -X POST "https://bitget-trader.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"

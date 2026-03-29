@@ -1,0 +1,26 @@
+name: Scraper Aguia (2h)
+on:
+  schedule:
+    - cron: '30 12,14,16,18,20,22,0,2 * * *'  # 09:30-23:30 BRT (offset 30min do cron)
+  workflow_dispatch: {}
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Playwright
+        run: npm install playwright && npx playwright install --with-deps chromium
+
+      - name: Scrape Aguia Spread
+        env:
+          AGUIA_EMAIL: ${{ secrets.AGUIA_EMAIL }}
+          AGUIA_PASSWORD: ${{ secrets.AGUIA_PASSWORD }}
+          CRON_SECRET: ${{ secrets.KEY }}
+        run: node scrape-cloud.js
