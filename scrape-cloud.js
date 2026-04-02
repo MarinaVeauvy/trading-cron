@@ -256,6 +256,15 @@ async function scrapeAlerts() {
         body: JSON.stringify({ direction: 'to-bitget' }),
       });
       console.log('  Bitget:', await syncRes.json());
+
+      // Enviar para Bybit (Modo Grécia v2)
+      console.log('📡 Enviando para Bybit...');
+      const bybitRes = await fetch('https://bybit-trader-three.vercel.app/api/cron', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alerts: uniqueAlerts, secret: API_KEY }),
+      });
+      console.log('  Bybit:', await bybitRes.json());
     }
 
     return uniqueAlerts;
