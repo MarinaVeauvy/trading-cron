@@ -1,4 +1,4 @@
-name: Trading Cron (2h) — OKX2 + Bitget
+name: Trading Cron (2h) — Bitget
 on:
   schedule:
     - cron: '0 */2 * * *'
@@ -9,12 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
-      - name: OKX 2 - Cron
-        run: curl -sf "https://aguia-trader-2.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
-
-      - name: OKX 2 - Trailing
-        run: curl -sf -X POST "https://aguia-trader-2.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
-
       - name: Bitget - Cron
         run: curl -sf "https://bitget-trader.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
 

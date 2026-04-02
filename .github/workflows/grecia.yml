@@ -1,23 +1,28 @@
-name: Modo Grécia (30min) — OKX + Bybit
+name: Modo Grécia (30min) — OKX + OKX2 + Bybit
 on:
   schedule:
-    - cron: '*/30 * * * *'  # A cada 30 minutos
+    - cron: '*/30 * * * *'
   workflow_dispatch: {}
 
 jobs:
   grecia:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      # Verificar pilares + executar trades
       - name: OKX Grécia - Cron
         run: curl -sf "https://aguia-trader.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
 
-      - name: OKX Grécia - Trailing (SMA branca + max hold)
+      - name: OKX Grécia - Trailing
         run: curl -sf -X POST "https://aguia-trader.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
+
+      - name: OKX2 Moderado - Cron
+        run: curl -sf "https://aguia-trader-2.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
+
+      - name: OKX2 Moderado - Trailing
+        run: curl -sf -X POST "https://aguia-trader-2.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
 
       - name: Bybit Grécia - Cron
         run: curl -sf "https://bybit-trader-three.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
 
-      - name: Bybit Grécia - Trailing (SMA branca + max hold)
+      - name: Bybit Grécia - Trailing
         run: curl -sf -X POST "https://bybit-trader-three.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
