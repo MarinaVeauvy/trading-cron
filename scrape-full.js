@@ -7,6 +7,7 @@ const TARGETS = [
   { name: 'OKX', url: 'https://aguia-trader.vercel.app/api/cron' },
   { name: 'OKX2', url: 'https://aguia-trader-2.vercel.app/api/cron' },
   { name: 'Bybit', url: 'https://bybit-trader-three.vercel.app/api/cron' },
+  { name: 'Bitget', url: 'https://bitget-trader.vercel.app/api/cron' },
 ];
 
 const PAGES = [

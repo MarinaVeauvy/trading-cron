@@ -1,4 +1,4 @@
-name: Modo Grécia (30min) — OKX + OKX2 + Bybit
+name: Modo Grécia (30min) — 4 contas
 on:
   schedule:
     - cron: '*/30 * * * *'
@@ -26,3 +26,9 @@ jobs:
 
       - name: Bybit Grécia - Trailing
         run: curl -sf -X POST "https://bybit-trader-three.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
+
+      - name: Bitget Agressivo - Cron
+        run: curl -sf "https://bitget-trader.vercel.app/api/cron?secret=${{ secrets.KEY }}" || echo "fail"
+
+      - name: Bitget Agressivo - Trailing
+        run: curl -sf -X POST "https://bitget-trader.vercel.app/api/trailing" -H "x-api-key:${{ secrets.KEY }}" || echo "fail"
