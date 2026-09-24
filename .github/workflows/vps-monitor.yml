@@ -2,7 +2,11 @@ name: VPS Health Monitor
 
 # Mora aqui (repo PUBLICO) porque minutos de Actions sao gratuitos em repo publico.
 # Veio de MarinaVeauvy/aguia-trader (privado), onde queimava ~3.000 min/mes (1 min cobrado por run).
-# IP fica em secret para nao expor o host publicamente.
+# Vigia TRES falhas, nao uma:
+#   1. VPS caida        -> porta 22 nao responde
+#   2. Cron morto       -> heartbeat de vps:heartbeat parado (health-auditor roda */30 e publica)
+#   3. Problema critico -> campo crit>0 no heartbeat (posicao nua, bot caido, monitor-sltp off...)
+# O item 2 e o que o vigia de dentro NAO consegue cobrir: ninguem relata a propria morte.
 
 on:
   schedule:
@@ -10,16 +14,19 @@ on:
   workflow_dispatch:
     inputs:
       test_alert:
-        description: 'Envia uma mensagem de teste no Telegram (nao altera o estado salvo)'
+        description: 'Envia mensagem de teste no Telegram (nao altera estado salvo)'
         type: boolean
         default: false
+
+env:
+  HEARTBEAT_MAX_MIN: 75   # cron e */30; 75min tolera 2 falhas seguidas sem alarme falso
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
     steps:
-      - name: Check VPS SSH port
+      - name: Check VPS, heartbeat e criticos
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -29,36 +36,69 @@ jobs:
           TEST_ALERT: ${{ inputs.test_alert }}
         run: |
           set -u
-          # Falha cedo e alto: sem credencial o monitor nao consegue avisar (bug do repo antigo).
           for v in TG_TOKEN TG_CHAT REDIS_URL REDIS_TOKEN VPS_IP; do
             if [ -z "${!v}" ]; then echo "::error::secret $v ausente — o alerta nao chegaria"; exit 1; fi
           done
 
+          rget() { curl -s -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/get/$1" | jq -r '.result // empty'; }
+          rset() { curl -s -X POST -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/set/$1/$2?EX=86400" > /dev/null; }
           send() {
             code=$(curl -s -o /tmp/tg.out -w '%{http_code}' -X POST \
               "https://api.telegram.org/bot$TG_TOKEN/sendMessage" \
               -d chat_id="$TG_CHAT" -d parse_mode=HTML -d text="$1")
             echo "telegram HTTP $code"
-            if [ "$code" != "200" ]; then echo "::error::Telegram recusou o alerta: $(cat /tmp/tg.out)"; return 1; fi
+            [ "$code" = "200" ] || { echo "::error::Telegram recusou o alerta: $(cat /tmp/tg.out)"; return 1; }
           }
 
           if [ "$TEST_ALERT" = "true" ]; then
-            send "🧪 <b>Teste do VPS Health Monitor</b>%0ARodando de MarinaVeauvy/trading-cron (repo público, minutos grátis).%0ASe você recebeu isto, o alerta funciona." || exit 1
-            echo "teste enviado; sem alterar estado"; exit 0
+            send "🧪 <b>Teste do VPS Health Monitor</b>%0ARodando de trading-cron (repo público, minutos grátis).%0AVigia: VPS de pé, heartbeat do health-auditor e alertas críticos." || exit 1
+            echo "teste enviado; estado intacto"; exit 0
           fi
 
+          # ---- 1) VPS de pe? ----
           if timeout 10 bash -c "</dev/tcp/$VPS_IP/22" 2>/dev/null; then CURRENT=up; else CURRENT=down; fi
-          PREV=$(curl -s -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/get/vps:status" | grep -oP '(?<="result":")[^"]*' || echo unknown)
-          echo "VPS status: $CURRENT (anterior: $PREV)"
+          PREV=$(rget vps:status); PREV=${PREV:-unknown}
+          echo "VPS: $CURRENT (anterior: $PREV)"
 
           if [ "$CURRENT" = down ] && [ "$PREV" != down ]; then
-            send "🚨 <b>VPS OFFLINE</b>%0AIP: $VPS_IP%0ASSH porta 22 não responde%0AAuto-trades pausados até a VPS voltar"
-            curl -s -X POST -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/set/vps:status/down?EX=86400" > /dev/null
+            send "🚨 <b>VPS OFFLINE</b>%0AIP: $VPS_IP%0ASSH porta 22 não responde%0AAuto-trades parados até voltar"
+            rset vps:status down
+            exit 1
           elif [ "$CURRENT" = up ] && [ "$PREV" = down ]; then
-            send "✅ <b>VPS RECUPERADA</b>%0AIP: $VPS_IP%0ASSH respondendo de novo%0AAuto-trades retomam nos próximos ciclos"
-            curl -s -X POST -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/set/vps:status/up?EX=86400" > /dev/null
-          elif [ "$CURRENT" = up ] && [ "$PREV" != up ]; then
-            curl -s -X POST -H "Authorization: Bearer $REDIS_TOKEN" "$REDIS_URL/set/vps:status/up?EX=86400" > /dev/null
+            send "✅ <b>VPS RECUPERADA</b>%0AIP: $VPS_IP%0ASSH respondendo de novo"
           fi
-
+          rset vps:status up
           [ "$CURRENT" = up ] || exit 1
+
+          # ---- 2) heartbeat do health-auditor ----
+          HB=$(rget vps:heartbeat)
+          if [ -z "$HB" ]; then
+            AGE=999999; CRIT=0; HB_OK=no
+          else
+            TS=$(printf '%s' "$HB" | jq -r '.ts // 0')
+            CRIT=$(printf '%s' "$HB" | jq -r '.crit // 0')
+            AGE=$(( ( $(date +%s%3N) - TS ) / 60000 ))
+            HB_OK=yes
+          fi
+          echo "heartbeat: ok=$HB_OK idade=${AGE}min crit=$CRIT (limite ${HEARTBEAT_MAX_MIN}min)"
+
+          if [ "$AGE" -gt "$HEARTBEAT_MAX_MIN" ]; then HB_STATE=stale; else HB_STATE=fresh; fi
+          HB_PREV=$(rget vps:hb-state); HB_PREV=${HB_PREV:-unknown}
+
+          if [ "$HB_STATE" = stale ] && [ "$HB_PREV" != stale ]; then
+            send "🟠 <b>HEARTBEAT PARADO</b>%0AVPS está de pé, mas o health-auditor não publica há ${AGE}min (limite ${HEARTBEAT_MAX_MIN}min).%0ACron morto ou auditor quebrado — as proteções podem estar sem vigia."
+          elif [ "$HB_STATE" = fresh ] && [ "$HB_PREV" = stale ]; then
+            send "✅ <b>HEARTBEAT NORMALIZADO</b>%0Ahealth-auditor voltou a publicar (idade ${AGE}min)."
+          fi
+          rset vps:hb-state "$HB_STATE"
+
+          # ---- 3) criticos do auditor (dedupe: so avisa na virada 0 -> N) ----
+          CRIT_PREV=$(rget vps:hb-crit); CRIT_PREV=${CRIT_PREV:-0}
+          if [ "$CRIT" -gt 0 ] && [ "$CRIT_PREV" = 0 ]; then
+            send "🔴 <b>$CRIT ALERTA(S) CRÍTICO(S)</b> no health-auditor%0AVer detalhe no alerta próprio dele (posição nua, bot caído, monitor-sltp off...)."
+          elif [ "$CRIT" = 0 ] && [ "$CRIT_PREV" != 0 ]; then
+            send "✅ <b>Críticos zerados</b> no health-auditor."
+          fi
+          rset vps:hb-crit "$CRIT"
+
+          [ "$HB_STATE" = fresh ] || exit 1
